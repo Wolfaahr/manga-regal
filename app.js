@@ -261,88 +261,143 @@ function normalizeCoverTitle(text){
     .trim();
 }
 
-function googleCoverUrl(item){
-  const links=item?.volumeInfo?.imageLinks||{};
-  let url=links.extraLarge||links.large||links.medium||links.small||links.thumbnail||links.smallThumbnail||"";
-  if(!url)return "";
-  url=url.replace(/^http:/i,"https:");
-  url=url.replace(/([?&])zoom=1(&|$)/,"$1zoom=2$2");
-  return url;
+
+function jikanCoverUrl(item){
+  return item?.images?.webp?.large_image_url
+    || item?.images?.jpg?.large_image_url
+    || item?.images?.webp?.image_url
+    || item?.images?.jpg?.image_url
+    || "";
 }
 
-function scoreCoverCandidate(item,series){
-  const info=item.volumeInfo||{};
+function titleVariantsFromJikan(item){
+  const out=[
+    item?.title,
+    item?.title_english,
+    item?.title_japanese,
+    ...(item?.titles||[]).map(x=>x?.title),
+    ...(item?.title_synonyms||[])
+  ];
+  return [...new Set(out.filter(Boolean))];
+}
+
+function scoreJikanCandidate(item,series){
   const wanted=normalizeCoverTitle(cleanCoverSearchTitle(series.title));
-  const got=normalizeCoverTitle(info.title||"");
+  const variants=titleVariantsFromJikan(item).map(normalizeCoverTitle);
   let score=0;
-  if(got===wanted) score+=120;
-  else if(got.includes(wanted)||wanted.includes(got)) score+=70;
-  const words=wanted.split(" ").filter(x=>x.length>2);
-  score+=words.filter(w=>got.includes(w)).length*8;
-  if((info.language||"").toLowerCase()===series.lang) score+=22;
-  if(/(?:vol(?:ume)?\.?|band)\s*0?1\b/i.test(info.title||"")) score+=6;
-  if(googleCoverUrl(item)) score+=35;
+  for(const got of variants){
+    if(!got)continue;
+    if(got===wanted) score=Math.max(score,160);
+    else if(got.includes(wanted)||wanted.includes(got)) score=Math.max(score,100);
+    const words=wanted.split(" ").filter(x=>x.length>2);
+    score=Math.max(score,words.filter(w=>got.includes(w)).length*12);
+  }
+  if(jikanCoverUrl(item)) score+=35;
+  if(item?.type==="Manga") score+=8;
   return score;
 }
 
-function jsonpGet(baseUrl,params,timeoutMs=12000){
-  return new Promise((resolve,reject)=>{
-    const cb="__mangaBooks_"+Date.now()+"_"+Math.random().toString(36).slice(2);
-    const script=document.createElement("script");
-    const timer=setTimeout(()=>cleanup(new Error("Zeitüberschreitung bei Google Books")),timeoutMs);
-
-    function cleanup(err,data){
-      clearTimeout(timer);
-      try{ delete window[cb]; }catch{ window[cb]=undefined; }
-      script.remove();
-      if(err) reject(err); else resolve(data);
-    }
-
-    window[cb]=(data)=>cleanup(null,data);
-    script.onerror=()=>cleanup(new Error("Google Books konnte nicht geladen werden"));
-
-    const qs=new URLSearchParams({...params,callback:cb});
-    script.src=baseUrl+"?"+qs.toString();
-    document.head.appendChild(script);
-  });
-}
-
-async function queryGoogleBooks(series){
+async function queryJikan(series){
   const title=cleanCoverSearchTitle(series.title);
-
-  async function run(q,withLang=true){
-    const params={
-      q:q,
-      maxResults:"20",
-      printType:"books",
-      orderBy:"relevance",
-      projection:"lite"
-    };
-    if(withLang && ["de","en","ja"].includes(series.lang)) params.langRestrict=series.lang;
-    const data=await jsonpGet("https://www.googleapis.com/books/v1/volumes",params);
-    if(data?.error) throw new Error(data.error.message||"Google Books Fehler");
-    return data?.items||[];
-  }
-
-  let items=await run('intitle:"'+title+'"',true);
-  if(items.filter(x=>googleCoverUrl(x)).length<3){
-    const more=await run(title,false);
-    const seen=new Set(items.map(x=>x.id));
-    for(const x of more) if(!seen.has(x.id)){ seen.add(x.id); items.push(x); }
-  }
-
-  return items
-    .filter(x=>googleCoverUrl(x))
-    .sort((a,b)=>scoreCoverCandidate(b,series)-scoreCoverCandidate(a,series))
+  const params=new URLSearchParams({
+    q:title,
+    limit:"8",
+    sfw:"true",
+    order_by:"members",
+    sort:"desc"
+  });
+  const resp=await fetch("https://api.jikan.moe/v4/manga?"+params.toString(),{
+    headers:{Accept:"application/json"},
+    cache:"no-store"
+  });
+  if(resp.status===429) throw new Error("Jikan ist kurz im Rate-Limit – bitte ein paar Sekunden warten");
+  if(!resp.ok) throw new Error("Jikan antwortet mit "+resp.status);
+  const data=await resp.json();
+  return (data?.data||[])
+    .filter(x=>jikanCoverUrl(x))
+    .sort((a,b)=>scoreJikanCandidate(b,series)-scoreJikanCandidate(a,series))
     .slice(0,3)
     .map(x=>({
-      id:x.id,
-      url:googleCoverUrl(x),
-      title:x.volumeInfo?.title||series.title,
-      publisher:x.volumeInfo?.publisher||"",
-      date:x.volumeInfo?.publishedDate||"",
-      language:x.volumeInfo?.language||""
+      id:"jikan-"+x.mal_id,
+      url:jikanCoverUrl(x),
+      title:x.title_english||x.title||series.title,
+      publisher:x.authors?.[0]?.name||"MyAnimeList / Jikan",
+      date:x.published?.from ? String(x.published.from).slice(0,10) : "",
+      source:"Jikan"
     }));
+}
+
+function openLibraryCoverUrl(doc){
+  return doc?.cover_i
+    ? "https://covers.openlibrary.org/b/id/"+doc.cover_i+"-L.jpg?default=false"
+    : "";
+}
+
+function scoreOpenLibraryCandidate(doc,series){
+  const wanted=normalizeCoverTitle(cleanCoverSearchTitle(series.title));
+  const got=normalizeCoverTitle(doc?.title||"");
+  let score=0;
+  if(got===wanted) score+=150;
+  else if(got.includes(wanted)||wanted.includes(got)) score+=90;
+  const words=wanted.split(" ").filter(x=>x.length>2);
+  score+=words.filter(w=>got.includes(w)).length*10;
+  if(openLibraryCoverUrl(doc)) score+=35;
+  return score;
+}
+
+async function queryOpenLibrary(series){
+  const title=cleanCoverSearchTitle(series.title);
+  const params=new URLSearchParams({
+    title:title,
+    fields:"key,title,author_name,first_publish_year,cover_i",
+    limit:"12"
+  });
+  const resp=await fetch("https://openlibrary.org/search.json?"+params.toString(),{
+    headers:{Accept:"application/json"},
+    cache:"no-store"
+  });
+  if(!resp.ok) throw new Error("Open Library antwortet mit "+resp.status);
+  const data=await resp.json();
+  return (data?.docs||[])
+    .filter(x=>openLibraryCoverUrl(x))
+    .sort((a,b)=>scoreOpenLibraryCandidate(b,series)-scoreOpenLibraryCandidate(a,series))
+    .slice(0,3)
+    .map(x=>({
+      id:"ol-"+(x.key||x.cover_i),
+      url:openLibraryCoverUrl(x),
+      title:x.title||series.title,
+      publisher:(x.author_name||[]).slice(0,1).join("")||"Open Library",
+      date:x.first_publish_year ? String(x.first_publish_year) : "",
+      source:"Open Library"
+    }));
+}
+
+async function queryCoverProviders(series){
+  const all=[];
+  const seen=new Set();
+
+  try{
+    const jikan=await queryJikan(series);
+    for(const x of jikan){
+      if(!seen.has(x.url)){ seen.add(x.url); all.push(x); }
+    }
+  }catch(err){
+    console.warn("Jikan cover search failed:",err);
+  }
+
+  if(all.length<3){
+    try{
+      const openLibrary=await queryOpenLibrary(series);
+      for(const x of openLibrary){
+        if(!seen.has(x.url)){ seen.add(x.url); all.push(x); }
+        if(all.length>=3)break;
+      }
+    }catch(err){
+      console.warn("Open Library cover search failed:",err);
+    }
+  }
+
+  return all.slice(0,3);
 }
 
 async function loadCoverSuggestions(){
@@ -353,16 +408,16 @@ async function loadCoverSuggestions(){
   const grid=$("#coverSuggestionGrid");
   box.classList.remove("hidden");
   grid.innerHTML="";
-  $("#coverSuggestionSource").textContent="Google Books";
-  $("#coverSuggestionStatus").textContent="Suche passende Ausgaben …";
+  $("#coverSuggestionSource").textContent="Jikan + Open Library";
+  $("#coverSuggestionStatus").textContent="Suche passende Manga-Cover …";
   btn.disabled=true; btn.textContent="Suche …";
 
   try{
-    const suggestions=await queryGoogleBooks(activeSeries);
+    const suggestions=await queryCoverProviders(activeSeries);
     if(!activeSeries || activeSeries.id!==seriesId)return;
     $("#coverSuggestionStatus").textContent=suggestions.length
       ? "Wähle das Cover, das zu deiner Ausgabe passt."
-      : "Leider kein brauchbarer Treffer. Du kannst weiterhin ein Cover manuell hochladen.";
+      : "Bei Jikan und Open Library wurde leider kein passendes Cover gefunden. Du kannst weiterhin ein Cover manuell hochladen.";
     if(!suggestions.length){
       grid.innerHTML='<div class="suggestion-empty">Keine Cover gefunden.</div>';
       return;
@@ -379,7 +434,7 @@ async function loadCoverSuggestions(){
 
       const meta=document.createElement("div");
       meta.className="suggestion-meta";
-      const details=[s.title,s.publisher,s.date].filter(Boolean);
+      const details=[s.source,s.title,s.publisher,s.date].filter(Boolean);
       meta.textContent=details.join(" · ");
 
       const use=document.createElement("button");
