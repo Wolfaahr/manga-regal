@@ -1,15 +1,17 @@
-const CACHE="manga-regal-pwa-v7";
-const CORE=["./","./index.html","./styles.css?v=7","./app.js?v=7","./config.js","./manifest.webmanifest","./icons/icon-192.png","./icons/icon-512.png"];
+const CACHE="manga-regal-pwa-v8";
+const CORE=["./","./index.html","./styles.css?v=8","./app.js?v=8","./config.js","./manifest.webmanifest","./icons/icon-192.png","./icons/icon-512.png"];
 
 self.addEventListener("install",e=>e.waitUntil(
   caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())
 ));
 
-self.addEventListener("activate",e=>e.waitUntil(
-  caches.keys()
-    .then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))
-    .then(()=>self.clients.claim())
-));
+self.addEventListener("activate",e=>e.waitUntil((async()=>{
+  const keys=await caches.keys();
+  await Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)));
+  await self.clients.claim();
+  const clients=await self.clients.matchAll({type:"window",includeUncontrolled:true});
+  await Promise.all(clients.map(client=>client.navigate(client.url).catch(()=>{})));
+})()));
 
 self.addEventListener("fetch",e=>{
   if(e.request.method!=="GET")return;
