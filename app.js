@@ -285,23 +285,43 @@ function scoreCoverCandidate(item,series){
   return score;
 }
 
+function jsonpGet(baseUrl,params,timeoutMs=12000){
+  return new Promise((resolve,reject)=>{
+    const cb="__mangaBooks_"+Date.now()+"_"+Math.random().toString(36).slice(2);
+    const script=document.createElement("script");
+    const timer=setTimeout(()=>cleanup(new Error("Zeitüberschreitung bei Google Books")),timeoutMs);
+
+    function cleanup(err,data){
+      clearTimeout(timer);
+      try{ delete window[cb]; }catch{ window[cb]=undefined; }
+      script.remove();
+      if(err) reject(err); else resolve(data);
+    }
+
+    window[cb]=(data)=>cleanup(null,data);
+    script.onerror=()=>cleanup(new Error("Google Books konnte nicht geladen werden"));
+
+    const qs=new URLSearchParams({...params,callback:cb});
+    script.src=baseUrl+"?"+qs.toString();
+    document.head.appendChild(script);
+  });
+}
+
 async function queryGoogleBooks(series){
   const title=cleanCoverSearchTitle(series.title);
+
   async function run(q,withLang=true){
-    const params=new URLSearchParams({
+    const params={
       q:q,
       maxResults:"20",
       printType:"books",
       orderBy:"relevance",
       projection:"lite"
-    });
-    if(withLang && ["de","en","ja"].includes(series.lang)) params.set("langRestrict",series.lang);
-    const resp=await fetch("https://www.googleapis.com/books/v1/volumes?"+params.toString(),{
-      headers:{Accept:"application/json"}
-    });
-    if(!resp.ok) throw new Error("Google Books antwortet mit "+resp.status);
-    const data=await resp.json();
-    return data.items||[];
+    };
+    if(withLang && ["de","en","ja"].includes(series.lang)) params.langRestrict=series.lang;
+    const data=await jsonpGet("https://www.googleapis.com/books/v1/volumes",params);
+    if(data?.error) throw new Error(data.error.message||"Google Books Fehler");
+    return data?.items||[];
   }
 
   let items=await run('intitle:"'+title+'"',true);
@@ -310,6 +330,7 @@ async function queryGoogleBooks(series){
     const seen=new Set(items.map(x=>x.id));
     for(const x of more) if(!seen.has(x.id)){ seen.add(x.id); items.push(x); }
   }
+
   return items
     .filter(x=>googleCoverUrl(x))
     .sort((a,b)=>scoreCoverCandidate(b,series)-scoreCoverCandidate(a,series))
@@ -370,8 +391,8 @@ async function loadCoverSuggestions(){
       grid.appendChild(card);
     }
   }catch(err){
-    $("#coverSuggestionStatus").textContent="Cover-Suche nicht erreichbar. Versuch es später erneut oder lade ein Cover manuell hoch.";
-    grid.innerHTML='<div class="suggestion-empty">Suche fehlgeschlagen.</div>';
+    $("#coverSuggestionStatus").textContent="Cover-Suche nicht erreichbar: "+(err?.message||"unbekannter Fehler");
+    grid.innerHTML='<div class="suggestion-empty">Suche fehlgeschlagen. Du kannst weiterhin ein Cover manuell hochladen.</div>';
   }finally{
     btn.disabled=false; btn.textContent="↻ Vorschläge neu laden";
   }
