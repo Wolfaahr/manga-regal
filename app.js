@@ -121,6 +121,8 @@ function renderAll(){
 
 async function signedCover(path){
   if(!path || !supabase) return "";
+  if(path.startsWith("external:")) return path.slice(9);
+  if(/^https?:\/\//i.test(path)) return path;
   const {data,error}=await supabase.storage.from("manga-covers").createSignedUrl(path,3600);
   return error ? "" : (data?.signedUrl||"");
 }
@@ -181,6 +183,7 @@ function openSeries(id){
     ${s.announced_count>s.released_count?`<span class="tag">${s.announced_count-s.released_count} angekündigt</span>`:""}`;
   $("#seriesNote").classList.toggle("hidden",!s.note);
   $("#seriesNote").textContent=s.note||"";
+  resetCoverSuggestions();
 
   const vg=$("#volumeGrid"); vg.innerHTML="";
   for(const v of s.volumes){
@@ -230,6 +233,202 @@ async function flushQueue(){
   if(!remain.length){ setSync("✓ synchron","ok"); await loadLibrary(); }
 }
 
+
+function resetCoverSuggestions(){
+  const box=$("#coverSuggestions");
+  if(!box)return;
+  box.classList.add("hidden");
+  $("#coverSuggestionGrid").innerHTML="";
+  $("#coverSuggestionStatus").textContent="";
+  $("#coverSuggestionSource").textContent="";
+  const btn=$("#coverSuggestionsBtn");
+  if(btn){ btn.disabled=false; btn.textContent="✨ Cover-Vorschläge laden"; }
+}
+
+function cleanCoverSearchTitle(title){
+  return String(title||"")
+    .replace(/\s+[–—-]\s+alte Ausgabe$/i,"")
+    .replace(/\s+[–—-]\s+Hauptreihe$/i,"")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+function normalizeCoverTitle(text){
+  return String(text||"")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g," ")
+    .trim();
+}
+
+function googleCoverUrl(item){
+  const links=item?.volumeInfo?.imageLinks||{};
+  let url=links.extraLarge||links.large||links.medium||links.small||links.thumbnail||links.smallThumbnail||"";
+  if(!url)return "";
+  url=url.replace(/^http:/i,"https:");
+  url=url.replace(/([?&])zoom=1(&|$)/,"$1zoom=2$2");
+  return url;
+}
+
+function scoreCoverCandidate(item,series){
+  const info=item.volumeInfo||{};
+  const wanted=normalizeCoverTitle(cleanCoverSearchTitle(series.title));
+  const got=normalizeCoverTitle(info.title||"");
+  let score=0;
+  if(got===wanted) score+=120;
+  else if(got.includes(wanted)||wanted.includes(got)) score+=70;
+  const words=wanted.split(" ").filter(x=>x.length>2);
+  score+=words.filter(w=>got.includes(w)).length*8;
+  if((info.language||"").toLowerCase()===series.lang) score+=22;
+  if(/(?:vol(?:ume)?\.?|band)\s*0?1\b/i.test(info.title||"")) score+=6;
+  if(googleCoverUrl(item)) score+=35;
+  return score;
+}
+
+async function queryGoogleBooks(series){
+  const title=cleanCoverSearchTitle(series.title);
+  async function run(q,withLang=true){
+    const params=new URLSearchParams({
+      q:q,
+      maxResults:"20",
+      printType:"books",
+      orderBy:"relevance",
+      projection:"lite"
+    });
+    if(withLang && ["de","en","ja"].includes(series.lang)) params.set("langRestrict",series.lang);
+    const resp=await fetch("https://www.googleapis.com/books/v1/volumes?"+params.toString(),{
+      headers:{Accept:"application/json"}
+    });
+    if(!resp.ok) throw new Error("Google Books antwortet mit "+resp.status);
+    const data=await resp.json();
+    return data.items||[];
+  }
+
+  let items=await run('intitle:"'+title+'"',true);
+  if(items.filter(x=>googleCoverUrl(x)).length<3){
+    const more=await run(title,false);
+    const seen=new Set(items.map(x=>x.id));
+    for(const x of more) if(!seen.has(x.id)){ seen.add(x.id); items.push(x); }
+  }
+  return items
+    .filter(x=>googleCoverUrl(x))
+    .sort((a,b)=>scoreCoverCandidate(b,series)-scoreCoverCandidate(a,series))
+    .slice(0,3)
+    .map(x=>({
+      id:x.id,
+      url:googleCoverUrl(x),
+      title:x.volumeInfo?.title||series.title,
+      publisher:x.volumeInfo?.publisher||"",
+      date:x.volumeInfo?.publishedDate||"",
+      language:x.volumeInfo?.language||""
+    }));
+}
+
+async function loadCoverSuggestions(){
+  if(!activeSeries)return;
+  const seriesId=activeSeries.id;
+  const btn=$("#coverSuggestionsBtn");
+  const box=$("#coverSuggestions");
+  const grid=$("#coverSuggestionGrid");
+  box.classList.remove("hidden");
+  grid.innerHTML="";
+  $("#coverSuggestionSource").textContent="Google Books";
+  $("#coverSuggestionStatus").textContent="Suche passende Ausgaben …";
+  btn.disabled=true; btn.textContent="Suche …";
+
+  try{
+    const suggestions=await queryGoogleBooks(activeSeries);
+    if(!activeSeries || activeSeries.id!==seriesId)return;
+    $("#coverSuggestionStatus").textContent=suggestions.length
+      ? "Wähle das Cover, das zu deiner Ausgabe passt."
+      : "Leider kein brauchbarer Treffer. Du kannst weiterhin ein Cover manuell hochladen.";
+    if(!suggestions.length){
+      grid.innerHTML='<div class="suggestion-empty">Keine Cover gefunden.</div>';
+      return;
+    }
+    for(const s of suggestions){
+      const card=document.createElement("article");
+      card.className="suggestion-card";
+
+      const cover=document.createElement("div");
+      cover.className="suggestion-cover";
+      const img=document.createElement("img");
+      img.src=s.url; img.alt="Cover-Vorschlag"; img.loading="lazy";
+      cover.appendChild(img);
+
+      const meta=document.createElement("div");
+      meta.className="suggestion-meta";
+      const details=[s.title,s.publisher,s.date].filter(Boolean);
+      meta.textContent=details.join(" · ");
+
+      const use=document.createElement("button");
+      use.type="button";
+      use.textContent="✓ Übernehmen";
+      use.addEventListener("click",()=>saveSuggestedCover(s.url,use));
+
+      card.append(cover,meta,use);
+      grid.appendChild(card);
+    }
+  }catch(err){
+    $("#coverSuggestionStatus").textContent="Cover-Suche nicht erreichbar. Versuch es später erneut oder lade ein Cover manuell hoch.";
+    grid.innerHTML='<div class="suggestion-empty">Suche fehlgeschlagen.</div>';
+  }finally{
+    btn.disabled=false; btn.textContent="↻ Vorschläge neu laden";
+  }
+}
+
+async function saveSuggestedCover(url,button){
+  if(!activeSeries || !session)return;
+  const seriesId=activeSeries.id;
+  button.disabled=true; button.textContent="Speichere …";
+  setSync("Cover wird gespeichert …");
+  let coverPath="";
+  let copied=false;
+
+  try{
+    const resp=await fetch(url,{mode:"cors",cache:"no-store"});
+    if(!resp.ok) throw new Error("Bild konnte nicht geladen werden");
+    const blob=await resp.blob();
+    if(!blob.type.startsWith("image/")) throw new Error("Kein Bild");
+    const ext=blob.type.includes("png")?"png":blob.type.includes("webp")?"webp":"jpg";
+    const path=session.user.id+"/"+seriesId+"/series-auto."+ext;
+    const {error:uploadError}=await supabase.storage
+      .from("manga-covers")
+      .upload(path,blob,{upsert:true,cacheControl:"86400",contentType:blob.type});
+    if(uploadError) throw uploadError;
+    coverPath=path;
+    copied=true;
+  }catch{
+    coverPath="external:"+url;
+  }
+
+  const {error}=await supabase.from("series").update({cover_path:coverPath}).eq("id",seriesId);
+  if(error){
+    button.disabled=false; button.textContent="✓ Übernehmen";
+    setSync("Cover konnte nicht gespeichert werden","bad");
+    toast("Cover konnte nicht gespeichert werden.");
+    return;
+  }
+
+  await loadLibrary();
+  const refreshed=library.find(x=>x.id===seriesId);
+  if(refreshed){
+    activeSeries=refreshed;
+    $("#seriesCover").innerHTML=coverMarkup(refreshed,true);
+  }
+  $("#coverSuggestions").classList.add("hidden");
+  const left=library.filter(x=>!x.cover_path).length;
+  setSync("✓ synchron","ok");
+  toast((copied?"Cover in Supabase gespeichert":"Cover verknüpft")+" · noch "+left+" ohne Cover");
+}
+
+function openCoverAssistant(){
+  const next=library.find(x=>!x.cover_path);
+  if(!next){ toast("Alle Reihen haben bereits ein Cover 🎉"); return; }
+  openSeries(next.id);
+  setTimeout(()=>loadCoverSuggestions(),80);
+}
+
 async function uploadSeriesCover(file){
   if(!activeSeries || !file)return;
   const ext=(file.name.split(".").pop()||"jpg").toLowerCase().replace(/[^a-z0-9]/g,"") || "jpg";
@@ -269,6 +468,8 @@ $$(".view-tab").forEach(b=>b.addEventListener("click",()=>{
 }));
 $("#closeSeries").addEventListener("click",()=>$("#seriesDialog").close());
 $("#seriesCoverInput").addEventListener("change",e=>{ const f=e.target.files?.[0]; if(f)uploadSeriesCover(f); e.target.value=""; });
+$("#coverSuggestionsBtn").addEventListener("click",loadCoverSuggestions);
+$("#coverAssistantBtn").addEventListener("click",openCoverAssistant);
 
 window.addEventListener("online",()=>{ setSync("Online – synchronisiere …"); flushQueue(); });
 window.addEventListener("offline",()=>setSync("Offline – lokale Ansicht","bad"));
