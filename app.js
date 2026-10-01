@@ -262,119 +262,145 @@ function normalizeCoverTitle(text){
 }
 
 
-function jikanCoverUrl(item){
-  return item?.images?.webp?.large_image_url
-    || item?.images?.jpg?.large_image_url
-    || item?.images?.webp?.image_url
-    || item?.images?.jpg?.image_url
-    || "";
+
+const COVER_ALIASES = new Map([
+  ["attack on titan","Attack on Titan"],
+  ["black butler","Black Butler"],
+  ["brave10","Brave 10"],
+  ["brynhildr in the darkness","Brynhildr in the Darkness"],
+  ["chrome breaker","Chrome Breaker"],
+  ["dark souls redemption","Dark Souls: Redemption"],
+  ["darker than black","Darker than Black"],
+  ["death note","Death Note"],
+  ["death note how to read band 13","Death Note 13: How to Read"],
+  ["death note black edition","Death Note"],
+  ["death note another note","Death Note Another Note"],
+  ["death note l change the world","L Change the WorLd"],
+  ["death note short stories","Death Note Short Stories"],
+  ["death note light up the new world","Death Note Light up the NEW world"],
+  ["defense devil","Defense Devil"],
+  ["elden ring der weg zum erdenbaum","Elden Ring: The Road to the Erdtree"],
+  ["elfen lied","Elfen Lied"],
+  ["goblin slayer","Goblin Slayer"],
+  ["highschool dxd","High School DxD"],
+  ["made in abyss","Made in Abyss"],
+  ["meine wiedergeburt als schleim in einer anderen welt","That Time I Got Reincarnated as a Slime"],
+  ["naruto","Naruto"],
+  ["noragami","Noragami"],
+  ["ranma 1 2","Ranma 1/2"],
+  ["seven deadly sins","The Seven Deadly Sins"],
+  ["tales of xillia","Tales of Xillia"],
+  ["talisman himari","Omamori Himari"],
+  ["the testament of sister new devil","The Testament of Sister New Devil"],
+  ["the testament of sister new devil storm","The Testament of Sister New Devil: Storm"],
+  ["tokyo ghoul","Tokyo Ghoul"],
+  ["yorha abstieg 11941 eine nier automata story","NieR:Automata - YoRHa Pearl Harbor Descent Record"],
+  ["xxxholic","xxxHOLiC"]
+]);
+
+function canonicalCoverTitle(series){
+  const cleaned=cleanCoverSearchTitle(series.title);
+  return COVER_ALIASES.get(normalizeCoverTitle(cleaned)) || cleaned;
 }
 
-function titleVariantsFromJikan(item){
+function titleSimilarityScore(wantedText,candidateTexts){
+  const wanted=normalizeCoverTitle(wantedText);
+  const words=wanted.split(" ").filter(x=>x.length>2);
+  let best=0;
+  for(const raw of candidateTexts.filter(Boolean)){
+    const got=normalizeCoverTitle(raw);
+    if(!got)continue;
+    if(got===wanted) best=Math.max(best,190);
+    else if(got.includes(wanted)||wanted.includes(got)) best=Math.max(best,135);
+    const matched=words.filter(w=>got.includes(w)).length;
+    const ratio=words.length ? matched/words.length : 0;
+    if(ratio>=0.8) best=Math.max(best,110+Math.round(ratio*20));
+    else if(ratio>=0.6) best=Math.max(best,85+Math.round(ratio*20));
+  }
+  return best;
+}
+
+async function queryAniList(series){
+  const search=canonicalCoverTitle(series);
+  const query='query ($search: String) { Page(page: 1, perPage: 10) { media(search: $search, type: MANGA, sort: SEARCH_MATCH) { id title { romaji english native userPreferred } synonyms format coverImage { extraLarge large medium } } } }';
+  const resp=await fetch("https://graphql.anilist.co",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","Accept":"application/json"},
+    body:JSON.stringify({query:query,variables:{search:search}}),
+    cache:"no-store"
+  });
+  if(resp.status===429) throw new Error("AniList ist kurz im Rate-Limit");
+  if(!resp.ok) throw new Error("AniList antwortet mit "+resp.status);
+  const data=await resp.json();
+  const media=data?.data?.Page?.media||[];
+
+  return media
+    .map(x=>{
+      const titles=[x.title?.english,x.title?.romaji,x.title?.native,x.title?.userPreferred,...(x.synonyms||[])];
+      const score=titleSimilarityScore(search,titles);
+      const url=x.coverImage?.extraLarge||x.coverImage?.large||x.coverImage?.medium||"";
+      return {x:x,score:score,url:url};
+    })
+    .filter(r=>r.url && r.score>=110)
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,3)
+    .map(r=>({
+      id:"anilist-"+r.x.id,
+      url:r.url,
+      title:r.x.title?.english||r.x.title?.userPreferred||r.x.title?.romaji||series.title,
+      publisher:"AniList",
+      date:"",
+      source:"AniList"
+    }));
+}
+
+function mangaDexTitles(manga){
+  const a=manga?.attributes||{};
   const out=[
-    item?.title,
-    item?.title_english,
-    item?.title_japanese,
-    ...(item?.titles||[]).map(x=>x?.title),
-    ...(item?.title_synonyms||[])
+    ...Object.values(a.title||{}),
+    ...(a.altTitles||[]).flatMap(x=>Object.values(x||{}))
   ];
   return [...new Set(out.filter(Boolean))];
 }
 
-function scoreJikanCandidate(item,series){
-  const wanted=normalizeCoverTitle(cleanCoverSearchTitle(series.title));
-  const variants=titleVariantsFromJikan(item).map(normalizeCoverTitle);
-  let score=0;
-  for(const got of variants){
-    if(!got)continue;
-    if(got===wanted) score=Math.max(score,160);
-    else if(got.includes(wanted)||wanted.includes(got)) score=Math.max(score,100);
-    const words=wanted.split(" ").filter(x=>x.length>2);
-    score=Math.max(score,words.filter(w=>got.includes(w)).length*12);
-  }
-  if(jikanCoverUrl(item)) score+=35;
-  if(item?.type==="Manga") score+=8;
-  return score;
+function mangaDexCoverUrl(manga){
+  const rel=(manga?.relationships||[]).find(r=>r.type==="cover_art");
+  const filename=rel?.attributes?.fileName;
+  return filename ? "https://uploads.mangadex.org/covers/"+manga.id+"/"+filename+".512.jpg" : "";
 }
 
-async function queryJikan(series){
-  const title=cleanCoverSearchTitle(series.title);
-  const params=new URLSearchParams({
-    q:title,
-    limit:"8",
-    sfw:"true",
-    order_by:"members",
-    sort:"desc"
-  });
-  const resp=await fetch("https://api.jikan.moe/v4/manga?"+params.toString(),{
+async function queryMangaDex(series){
+  const search=canonicalCoverTitle(series);
+  const params=new URLSearchParams();
+  params.set("title",search);
+  params.set("limit","10");
+  params.append("includes[]","cover_art");
+  params.set("order[relevance]","desc");
+
+  const resp=await fetch("https://api.mangadex.org/manga?"+params.toString(),{
     headers:{Accept:"application/json"},
     cache:"no-store"
   });
-  if(resp.status===429) throw new Error("Jikan ist kurz im Rate-Limit – bitte ein paar Sekunden warten");
-  if(!resp.ok) throw new Error("Jikan antwortet mit "+resp.status);
+  if(resp.status===429) throw new Error("MangaDex ist kurz im Rate-Limit");
+  if(!resp.ok) throw new Error("MangaDex antwortet mit "+resp.status);
   const data=await resp.json();
+
   return (data?.data||[])
-    .filter(x=>jikanCoverUrl(x))
-    .map(x=>({item:x,score:scoreJikanCandidate(x,series)}))
-    .filter(x=>x.score>=100)
+    .map(x=>{
+      const score=titleSimilarityScore(search,mangaDexTitles(x));
+      const url=mangaDexCoverUrl(x);
+      return {x:x,score:score,url:url};
+    })
+    .filter(r=>r.url && r.score>=110)
     .sort((a,b)=>b.score-a.score)
     .slice(0,3)
-    .map(({item:x})=>({
-      id:"jikan-"+x.mal_id,
-      url:jikanCoverUrl(x),
-      title:x.title_english||x.title||series.title,
-      publisher:x.authors?.[0]?.name||"MyAnimeList / Jikan",
-      date:x.published?.from ? String(x.published.from).slice(0,10) : "",
-      source:"Jikan"
-    }));
-}
-
-function openLibraryCoverUrl(doc){
-  return doc?.cover_i
-    ? "https://covers.openlibrary.org/b/id/"+doc.cover_i+"-L.jpg?default=false"
-    : "";
-}
-
-function scoreOpenLibraryCandidate(doc,series){
-  const wanted=normalizeCoverTitle(cleanCoverSearchTitle(series.title));
-  const got=normalizeCoverTitle(doc?.title||"");
-  let score=0;
-  if(got===wanted) score+=150;
-  else if(got.includes(wanted)||wanted.includes(got)) score+=90;
-  const words=wanted.split(" ").filter(x=>x.length>2);
-  score+=words.filter(w=>got.includes(w)).length*10;
-  if(openLibraryCoverUrl(doc)) score+=35;
-  return score;
-}
-
-async function queryOpenLibrary(series){
-  const title=cleanCoverSearchTitle(series.title);
-  const language=series.lang==="de"?"ger":series.lang==="en"?"eng":series.lang==="ja"?"jpn":"";
-  const params=new URLSearchParams({
-    title:title,
-    fields:"key,title,author_name,first_publish_year,cover_i,language",
-    limit:"20"
-  });
-  if(language) params.set("language",language);
-  const resp=await fetch("https://openlibrary.org/search.json?"+params.toString(),{
-    headers:{Accept:"application/json"},
-    cache:"no-store"
-  });
-  if(!resp.ok) throw new Error("Open Library antwortet mit "+resp.status);
-  const data=await resp.json();
-  return (data?.docs||[])
-    .filter(x=>openLibraryCoverUrl(x))
-    .map(x=>({item:x,score:scoreOpenLibraryCandidate(x,series)}))
-    .filter(x=>x.score>=90)
-    .sort((a,b)=>b.score-a.score)
-    .slice(0,3)
-    .map(({item:x})=>({
-      id:"ol-"+(x.key||x.cover_i),
-      url:openLibraryCoverUrl(x),
-      title:x.title||series.title,
-      publisher:(x.author_name||[]).slice(0,1).join("")||"Open Library",
-      date:x.first_publish_year ? String(x.first_publish_year) : "",
-      source:series.lang==="de"?"Open Library · deutsche Treffer":"Open Library"
+    .map(r=>({
+      id:"mangadex-"+r.x.id,
+      url:r.url,
+      title:mangaDexTitles(r.x)[0]||series.title,
+      publisher:"MangaDex",
+      date:r.x.attributes?.year ? String(r.x.attributes.year) : "",
+      source:"MangaDex"
     }));
 }
 
@@ -382,24 +408,19 @@ async function queryCoverProviders(series){
   const all=[];
   const seen=new Set();
 
-  async function addFrom(fn,label){
-    try{
-      const found=await fn(series);
-      for(const x of found){
-        if(!seen.has(x.url)){ seen.add(x.url); all.push(x); }
-        if(all.length>=3)break;
-      }
-    }catch(err){
-      console.warn(label+" cover search failed:",err);
+  function add(found){
+    for(const x of found){
+      if(!seen.has(x.url)){ seen.add(x.url); all.push(x); }
+      if(all.length>=3)break;
     }
   }
 
-  if(series.lang==="de"){
-    await addFrom(queryOpenLibrary,"Open Library");
-    if(all.length<3) await addFrom(queryJikan,"Jikan");
-  }else{
-    await addFrom(queryJikan,"Jikan");
-    if(all.length<3) await addFrom(queryOpenLibrary,"Open Library");
+  try{ add(await queryAniList(series)); }
+  catch(err){ console.warn("AniList cover search failed:",err); }
+
+  if(all.length<3){
+    try{ add(await queryMangaDex(series)); }
+    catch(err){ console.warn("MangaDex cover search failed:",err); }
   }
 
   return all.slice(0,3);
@@ -413,7 +434,7 @@ async function loadCoverSuggestions(){
   const grid=$("#coverSuggestionGrid");
   box.classList.remove("hidden");
   grid.innerHTML="";
-  $("#coverSuggestionSource").textContent="Jikan + Open Library";
+  $("#coverSuggestionSource").textContent="AniList + MangaDex";
   $("#coverSuggestionStatus").textContent="Suche passende Manga-Cover …";
   btn.disabled=true; btn.textContent="Suche …";
 
@@ -422,7 +443,7 @@ async function loadCoverSuggestions(){
     if(!activeSeries || activeSeries.id!==seriesId)return;
     $("#coverSuggestionStatus").textContent=suggestions.length
       ? "Wähle das Cover, das zu deiner Ausgabe passt."
-      : "Bei Jikan und Open Library wurde leider kein passendes Cover gefunden. Du kannst weiterhin ein Cover manuell hochladen.";
+      : "Bei AniList und MangaDex wurde kein sicher passender Treffer gefunden. Lieber kein Cover als ein falsches.";
     if(!suggestions.length){
       grid.innerHTML='<div class="suggestion-empty">Keine Cover gefunden.</div>';
       return;
@@ -667,7 +688,7 @@ $("#installBtn").addEventListener("click",async()=>{
   deferredInstallPrompt.prompt(); await deferredInstallPrompt.userChoice; deferredInstallPrompt=null; $("#installBtn").classList.add("hidden");
 });
 
-if("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js?v=8",{updateViaCache:"none"}).catch(()=>{});
+if("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js?v=9",{updateViaCache:"none"}).catch(()=>{});
 
 async function init(){
   if(!CONFIGURED){
