@@ -43,6 +43,7 @@
         <p id="syncLabel" class="muted">Synchronisiere …</p>
       </div>
       <div class="header-actions">
+        <button id="coverAssistantBtn" class="ghost" type="button">✨ Cover-Assistent</button>
         <button id="installBtn" class="ghost hidden" type="button">＋ App installieren</button>
         <button id="logoutBtn" class="ghost" type="button">Abmelden</button>
       </div>
@@ -108,6 +109,15 @@
           🖼 Cover hochladen
           <input id="seriesCoverInput" type="file" accept="image/*" hidden>
         </label>
+        <button id="coverSuggestionsBtn" class="suggest-btn" type="button">✨ Cover-Vorschläge laden</button>
+        <section id="coverSuggestions" class="cover-suggestions hidden" aria-live="polite">
+          <div class="suggest-title">
+            <strong>Cover-Vorschläge</strong>
+            <span id="coverSuggestionSource" class="muted small"></span>
+          </div>
+          <p id="coverSuggestionStatus" class="muted small"></p>
+          <div id="coverSuggestionGrid" class="suggest-grid"></div>
+        </section>
       </aside>
       <div>
         <div id="seriesMeta" class="meta-row"></div>
