@@ -315,9 +315,11 @@ async function queryJikan(series){
   const data=await resp.json();
   return (data?.data||[])
     .filter(x=>jikanCoverUrl(x))
-    .sort((a,b)=>scoreJikanCandidate(b,series)-scoreJikanCandidate(a,series))
+    .map(x=>({item:x,score:scoreJikanCandidate(x,series)}))
+    .filter(x=>x.score>=100)
+    .sort((a,b)=>b.score-a.score)
     .slice(0,3)
-    .map(x=>({
+    .map(({item:x})=>({
       id:"jikan-"+x.mal_id,
       url:jikanCoverUrl(x),
       title:x.title_english||x.title||series.title,
@@ -347,11 +349,13 @@ function scoreOpenLibraryCandidate(doc,series){
 
 async function queryOpenLibrary(series){
   const title=cleanCoverSearchTitle(series.title);
+  const language=series.lang==="de"?"ger":series.lang==="en"?"eng":series.lang==="ja"?"jpn":"";
   const params=new URLSearchParams({
     title:title,
-    fields:"key,title,author_name,first_publish_year,cover_i",
-    limit:"12"
+    fields:"key,title,author_name,first_publish_year,cover_i,language",
+    limit:"20"
   });
+  if(language) params.set("language",language);
   const resp=await fetch("https://openlibrary.org/search.json?"+params.toString(),{
     headers:{Accept:"application/json"},
     cache:"no-store"
@@ -360,15 +364,17 @@ async function queryOpenLibrary(series){
   const data=await resp.json();
   return (data?.docs||[])
     .filter(x=>openLibraryCoverUrl(x))
-    .sort((a,b)=>scoreOpenLibraryCandidate(b,series)-scoreOpenLibraryCandidate(a,series))
+    .map(x=>({item:x,score:scoreOpenLibraryCandidate(x,series)}))
+    .filter(x=>x.score>=90)
+    .sort((a,b)=>b.score-a.score)
     .slice(0,3)
-    .map(x=>({
+    .map(({item:x})=>({
       id:"ol-"+(x.key||x.cover_i),
       url:openLibraryCoverUrl(x),
       title:x.title||series.title,
       publisher:(x.author_name||[]).slice(0,1).join("")||"Open Library",
       date:x.first_publish_year ? String(x.first_publish_year) : "",
-      source:"Open Library"
+      source:series.lang==="de"?"Open Library · deutsche Treffer":"Open Library"
     }));
 }
 
@@ -376,25 +382,24 @@ async function queryCoverProviders(series){
   const all=[];
   const seen=new Set();
 
-  try{
-    const jikan=await queryJikan(series);
-    for(const x of jikan){
-      if(!seen.has(x.url)){ seen.add(x.url); all.push(x); }
-    }
-  }catch(err){
-    console.warn("Jikan cover search failed:",err);
-  }
-
-  if(all.length<3){
+  async function addFrom(fn,label){
     try{
-      const openLibrary=await queryOpenLibrary(series);
-      for(const x of openLibrary){
+      const found=await fn(series);
+      for(const x of found){
         if(!seen.has(x.url)){ seen.add(x.url); all.push(x); }
         if(all.length>=3)break;
       }
     }catch(err){
-      console.warn("Open Library cover search failed:",err);
+      console.warn(label+" cover search failed:",err);
     }
+  }
+
+  if(series.lang==="de"){
+    await addFrom(queryOpenLibrary,"Open Library");
+    if(all.length<3) await addFrom(queryJikan,"Jikan");
+  }else{
+    await addFrom(queryJikan,"Jikan");
+    if(all.length<3) await addFrom(queryOpenLibrary,"Open Library");
   }
 
   return all.slice(0,3);
@@ -453,10 +458,9 @@ async function loadCoverSuggestions(){
   }
 }
 
-async function saveSuggestedCover(url,button){
-  if(!activeSeries || !session)return;
-  const seriesId=activeSeries.id;
-  button.disabled=true; button.textContent="Speichere …";
+async function saveSuggestedCoverForSeries(seriesId,url,button,{bulk=false,card=null}={}){
+  if(!seriesId || !session)return false;
+  if(button){ button.disabled=true; button.textContent="Speichere …"; }
   setSync("Cover wird gespeichert …");
   let coverPath="";
   let copied=false;
@@ -480,29 +484,135 @@ async function saveSuggestedCover(url,button){
 
   const {error}=await supabase.from("series").update({cover_path:coverPath}).eq("id",seriesId);
   if(error){
-    button.disabled=false; button.textContent="✓ Übernehmen";
+    if(button){ button.disabled=false; button.textContent="✓ Übernehmen"; }
     setSync("Cover konnte nicht gespeichert werden","bad");
     toast("Cover konnte nicht gespeichert werden.");
-    return;
+    return false;
   }
 
   await loadLibrary();
   const refreshed=library.find(x=>x.id===seriesId);
-  if(refreshed){
-    activeSeries=refreshed;
-    $("#seriesCover").innerHTML=coverMarkup(refreshed,true);
+
+  if(bulk){
+    if(card){
+      card.classList.add("bulk-saved");
+      const results=card.querySelector(".bulk-results");
+      if(results) results.innerHTML='<div class="bulk-noresult">✓ Cover übernommen</div>';
+    }
+  }else{
+    if(refreshed){
+      activeSeries=refreshed;
+      $("#seriesCover").innerHTML=coverMarkup(refreshed,true);
+    }
+    $("#coverSuggestions").classList.add("hidden");
   }
-  $("#coverSuggestions").classList.add("hidden");
+
   const left=library.filter(x=>!x.cover_path).length;
   setSync("✓ synchron","ok");
   toast((copied?"Cover in Supabase gespeichert":"Cover verknüpft")+" · noch "+left+" ohne Cover");
+  return true;
+}
+
+async function saveSuggestedCover(url,button){
+  if(!activeSeries)return;
+  return saveSuggestedCoverForSeries(activeSeries.id,url,button);
+}
+
+function wait(ms){ return new Promise(resolve=>setTimeout(resolve,ms)); }
+
+function renderBulkSuggestionCard(series,suggestion,parent,card){
+  const item=document.createElement("article");
+  item.className="bulk-result";
+
+  const cover=document.createElement("div");
+  cover.className="suggestion-cover";
+  const img=document.createElement("img");
+  img.src=suggestion.url;
+  img.alt="Cover-Vorschlag "+series.title;
+  img.loading="lazy";
+  cover.appendChild(img);
+
+  const meta=document.createElement("div");
+  meta.className="bulk-result-meta";
+  meta.textContent=[suggestion.source,suggestion.title,suggestion.publisher,suggestion.date].filter(Boolean).join(" · ");
+
+  const use=document.createElement("button");
+  use.type="button";
+  use.textContent="✓ Übernehmen";
+  use.addEventListener("click",()=>saveSuggestedCoverForSeries(series.id,suggestion.url,use,{bulk:true,card}));
+
+  item.append(cover,meta,use);
+  parent.appendChild(item);
+}
+
+async function startBulkCoverSearch(){
+  const btn=$("#startBulkCoverSearch");
+  const root=$("#bulkCoverGrid");
+  const status=$("#bulkCoverStatus");
+  const targets=library.filter(s=>!s.cover_path);
+
+  if(!targets.length){
+    status.textContent="Alle Reihen haben bereits ein Cover 🎉";
+    root.innerHTML="";
+    return;
+  }
+
+  btn.disabled=true;
+  btn.textContent="Suche läuft …";
+  root.innerHTML="";
+  status.textContent="0 / "+targets.length+" Reihen durchsucht";
+
+  const cards=new Map();
+  for(const s of targets){
+    const card=document.createElement("article");
+    card.className="bulk-series-card";
+    card.dataset.seriesId=s.id;
+    card.innerHTML='<div class="bulk-series-head"><strong>'+flag(s.lang)+' '+esc(s.title)+'</strong><span class="muted small">warte …</span></div><div class="bulk-results"><div class="bulk-loading">Noch nicht durchsucht</div></div>';
+    root.appendChild(card);
+    cards.set(s.id,card);
+  }
+
+  let done=0;
+  for(const s of targets){
+    const card=cards.get(s.id);
+    const state=card.querySelector(".bulk-series-head span");
+    const results=card.querySelector(".bulk-results");
+    state.textContent="suche …";
+    results.innerHTML='<div class="bulk-loading">Cover werden gesucht …</div>';
+
+    try{
+      const suggestions=await queryCoverProviders(s);
+      results.innerHTML="";
+      if(suggestions.length){
+        state.textContent=suggestions.length+" Vorschlag"+(suggestions.length===1?"":"e");
+        for(const suggestion of suggestions) renderBulkSuggestionCard(s,suggestion,results,card);
+      }else{
+        state.textContent="kein Treffer";
+        results.innerHTML='<div class="bulk-noresult">Kein ausreichend passender Treffer – lieber manuell hochladen.</div>';
+      }
+    }catch(err){
+      state.textContent="Fehler";
+      results.innerHTML='<div class="bulk-noresult">Suche fehlgeschlagen: '+esc(err?.message||"unbekannter Fehler")+'</div>';
+    }
+
+    done++;
+    status.textContent=done+" / "+targets.length+" Reihen durchsucht";
+    if(done<targets.length) await wait(700);
+  }
+
+  btn.disabled=false;
+  btn.textContent="↻ Alle ohne Cover erneut durchsuchen";
+  status.textContent="Fertig: "+targets.length+" Reihen durchsucht. Wähle pro Reihe das passende Cover.";
 }
 
 function openCoverAssistant(){
-  const next=library.find(x=>!x.cover_path);
-  if(!next){ toast("Alle Reihen haben bereits ein Cover 🎉"); return; }
-  openSeries(next.id);
-  setTimeout(()=>loadCoverSuggestions(),80);
+  $("#coverAssistantDialog").showModal();
+  const targets=library.filter(s=>!s.cover_path);
+  $("#bulkCoverStatus").textContent=targets.length
+    ? targets.length+" Reihen ohne Cover. Mit einem Klick werden alle nacheinander gesucht."
+    : "Alle Reihen haben bereits ein Cover 🎉";
+  $("#bulkCoverGrid").innerHTML="";
+  if(targets.length) startBulkCoverSearch();
 }
 
 async function uploadSeriesCover(file){
@@ -546,6 +656,8 @@ $("#closeSeries").addEventListener("click",()=>$("#seriesDialog").close());
 $("#seriesCoverInput").addEventListener("change",e=>{ const f=e.target.files?.[0]; if(f)uploadSeriesCover(f); e.target.value=""; });
 $("#coverSuggestionsBtn").addEventListener("click",loadCoverSuggestions);
 $("#coverAssistantBtn").addEventListener("click",openCoverAssistant);
+$("#startBulkCoverSearch").addEventListener("click",startBulkCoverSearch);
+$("#closeCoverAssistant").addEventListener("click",()=>$("#coverAssistantDialog").close());
 
 window.addEventListener("online",()=>{ setSync("Online – synchronisiere …"); flushQueue(); });
 window.addEventListener("offline",()=>setSync("Offline – lokale Ansicht","bad"));
@@ -555,7 +667,7 @@ $("#installBtn").addEventListener("click",async()=>{
   deferredInstallPrompt.prompt(); await deferredInstallPrompt.userChoice; deferredInstallPrompt=null; $("#installBtn").classList.add("hidden");
 });
 
-if("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js?v=6",{updateViaCache:"none"}).catch(()=>{});
+if("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js?v=7",{updateViaCache:"none"}).catch(()=>{});
 
 async function init(){
   if(!CONFIGURED){
