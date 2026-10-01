@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111318">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>Manga-Regal</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <main id="loginView" class="login-shell">
+    <section class="login-card">
+      <div class="brand-mark">📚</div>
+      <h1>Manga-Regal</h1>
+      <p>Private Manga-Sammlung – synchron auf PC und Smartphone.</p>
+      <form id="loginForm">
+        <label>E-Mail
+          <input id="email" type="email" autocomplete="email" required placeholder="deine@email.de">
+        </label>
+        <label>Passwort
+          <input id="password" type="password" autocomplete="current-password" required placeholder="••••••••">
+        </label>
+        <button class="primary" type="submit">Anmelden</button>
+      </form>
+      <p id="loginHint" class="muted small">Nur Anmeldung – keine öffentliche Registrierung.</p>
+      <div id="configWarning" class="warning hidden">
+        Supabase ist noch nicht konfiguriert. Öffne <b>config.js</b> und trage URL + anon key ein.
+      </div>
+    </section>
+  </main>
+
+  <main id="appView" class="app hidden">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">PRIVATE SAMMLUNG</div>
+        <h1>📚 Manga-Regal</h1>
+        <p id="syncLabel" class="muted">Synchronisiere …</p>
+      </div>
+      <div class="header-actions">
+        <button id="installBtn" class="ghost hidden" type="button">＋ App installieren</button>
+        <button id="logoutBtn" class="ghost" type="button">Abmelden</button>
+      </div>
+    </header>
+
+    <section class="stats" aria-label="Sammlungsstatistik">
+      <article><span>Reihen</span><strong id="statSeries">0</strong></article>
+      <article><span>Im Besitz</span><strong id="statOwned">0</strong></article>
+      <article><span>Fehlen</span><strong id="statMissing">0</strong></article>
+      <article><span>Komplett</span><strong id="statComplete">0</strong></article>
+    </section>
+
+    <section class="toolbar">
+      <input id="searchInput" type="search" placeholder="Manga suchen …" aria-label="Manga suchen">
+      <div class="chips" id="filterChips">
+        <button class="chip active" data-filter="all">Alle</button>
+        <button class="chip" data-filter="missing">Unvollständig</button>
+        <button class="chip" data-filter="complete">Komplett</button>
+        <button class="chip" data-filter="de">🇩🇪</button>
+        <button class="chip" data-filter="en">🇬🇧</button>
+        <button class="chip" data-filter="ja">🇯🇵</button>
+      </div>
+      <select id="sortSelect" aria-label="Sortierung">
+        <option value="title">A–Z</option>
+        <option value="missing">Meiste fehlende</option>
+        <option value="progress">Fortschritt</option>
+      </select>
+    </section>
+
+    <nav class="view-tabs" aria-label="Ansicht">
+      <button class="view-tab active" data-view="shelf">Regal</button>
+      <button class="view-tab" data-view="shopping">🛒 Einkauf</button>
+    </nav>
+
+    <section id="shelfView">
+      <div id="shelfGrid" class="shelf-grid"></div>
+      <div id="emptyShelf" class="empty hidden">Keine Manga passen zu diesem Filter.</div>
+    </section>
+
+    <section id="shoppingView" class="hidden">
+      <div class="shopping-head">
+        <div>
+          <h2>Einkaufsliste</h2>
+          <p class="muted">Nur bereits erschienene Bände, die dir noch fehlen.</p>
+        </div>
+      </div>
+      <div id="shoppingList" class="shopping-list"></div>
+    </section>
+  </main>
+
+  <dialog id="seriesDialog">
+    <div class="dialog-head">
+      <div>
+        <div id="seriesLang" class="eyebrow"></div>
+        <h2 id="seriesTitle"></h2>
+      </div>
+      <button class="icon-btn" id="closeSeries" aria-label="Schließen">✕</button>
+    </div>
+    <div class="series-layout">
+      <aside>
+        <div id="seriesCover" class="detail-cover"></div>
+        <label class="upload-btn">
+          🖼 Cover hochladen
+          <input id="seriesCoverInput" type="file" accept="image/*" hidden>
+        </label>
+      </aside>
+      <div>
+        <div id="seriesMeta" class="meta-row"></div>
+        <div id="seriesNote" class="note hidden"></div>
+        <p class="muted small">Band antippen = als vorhanden / fehlend markieren.</p>
+        <div id="volumeGrid" class="volume-grid"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
