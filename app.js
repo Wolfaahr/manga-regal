@@ -555,7 +555,7 @@ $("#installBtn").addEventListener("click",async()=>{
   deferredInstallPrompt.prompt(); await deferredInstallPrompt.userChoice; deferredInstallPrompt=null; $("#installBtn").classList.add("hidden");
 });
 
-if("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(()=>{});
+if("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js?v=6",{updateViaCache:"none"}).catch(()=>{});
 
 async function init(){
   if(!CONFIGURED){
