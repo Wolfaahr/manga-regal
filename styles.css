@@ -62,3 +62,17 @@ dialog::backdrop{background:rgba(0,0,0,.72);backdrop-filter:blur(3px)}
  .app{padding:14px 12px 82px}.stats{grid-template-columns:1fr 1fr}.toolbar{grid-template-columns:1fr}.shelf-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:20px 9px}.card-title{font-size:.82rem}.series-layout{grid-template-columns:1fr}.detail-cover{width:170px}.topbar{align-items:flex-start}.header-actions{width:100%}.header-actions button{flex:1}.volume-grid{grid-template-columns:repeat(4,1fr)}
 }
 @media(max-width:390px){.shelf-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.suggest-btn{display:block;width:100%;margin-top:8px;background:linear-gradient(135deg,rgba(181,108,255,.16),rgba(102,199,255,.12));border-color:#5e5572}
+.cover-suggestions{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#101319}
+.suggest-title{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.suggest-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.suggestion-card{min-width:0}
+.suggestion-cover{aspect-ratio:2/3;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#20242c;position:relative}
+.suggestion-cover img{width:100%;height:100%;object-fit:cover;display:block}
+.suggestion-card button{width:100%;margin-top:6px;padding:8px 6px;font-size:.74rem}
+.suggestion-meta{font-size:.68rem;color:var(--muted);margin-top:5px;line-height:1.25;min-height:2.5em}
+.suggestion-empty{grid-column:1/-1;padding:14px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:10px}
+@media(max-width:760px){
+ .suggest-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
