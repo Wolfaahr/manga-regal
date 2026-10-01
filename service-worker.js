@@ -1,5 +1,5 @@
-const CACHE="manga-regal-pwa-v10";
-const CORE=["./","./index.html","./styles.css?v=10","./app.js?v=10","./config.js","./series-management.js?v=10","./manifest.webmanifest","./icons/icon-192.png","./icons/icon-512.png"];
+const CACHE="manga-regal-pwa-v11";
+const CORE=["./","./index.html","./styles.css?v=11","./app.js?v=11","./config.js","./series-management.js?v=11","./sync-state.js?v=11","./backup-format.js?v=11","./manifest.webmanifest","./icons/icon-192.png","./icons/icon-512.png"];
 
 self.addEventListener("install",e=>e.waitUntil(
   caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())
@@ -7,10 +7,9 @@ self.addEventListener("install",e=>e.waitUntil(
 
 self.addEventListener("activate",e=>e.waitUntil((async()=>{
   const keys=await caches.keys();
-  await Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)));
+  await Promise.all(keys.filter(k=>k.startsWith("manga-regal-pwa-")&&k!==CACHE).map(k=>caches.delete(k)));
   await self.clients.claim();
-  const clients=await self.clients.matchAll({type:"window",includeUncontrolled:true});
-  await Promise.all(clients.map(client=>client.navigate(client.url).catch(()=>{})));
+
 })()));
 
 self.addEventListener("fetch",e=>{
@@ -21,11 +20,13 @@ self.addEventListener("fetch",e=>{
     e.respondWith(
       fetch(e.request)
         .then(resp=>{
-          const copy=resp.clone();
-          caches.open(CACHE).then(c=>c.put(e.request,copy));
+          if(resp.ok){const copy=resp.clone();e.waitUntil(caches.open(CACHE).then(c=>c.put(e.request,copy)));}
           return resp;
         })
-        .catch(()=>caches.match(e.request))
+        .catch(async()=>{
+          const cache=await caches.open(CACHE);
+          return await cache.match(e.request) || (e.request.mode==="navigate" ? await cache.match("./index.html") : undefined) || Response.error();
+        })
     );
     return;
   }

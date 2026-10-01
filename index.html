@@ -9,7 +9,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icons/icon-192.png">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=10">
+  <link rel="stylesheet" href="./styles.css?v=11">
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -43,6 +43,9 @@
         <p id="syncLabel" class="muted">Synchronisiere …</p>
       </div>
       <div class="header-actions">
+        <button id="syncBtn" class="ghost" type="button">↻ Synchronisieren</button>
+        <button id="conflictsBtn" class="danger hidden" type="button">Konflikte klären</button>
+        <button id="backupBtn" class="ghost" type="button">Backup / Import</button>
         <button id="addSeriesBtn" class="primary" type="button">＋ Reihe hinzufügen</button>
         <button id="coverAssistantBtn" class="ghost" type="button">✨ Alle Cover suchen</button>
         <button id="installBtn" class="ghost hidden" type="button">＋ App installieren</button>
@@ -110,6 +113,8 @@
           🖼 Cover hochladen
           <input id="seriesCoverInput" type="file" accept="image/*" hidden>
         </label>
+        <p id="seriesCoverSource" class="muted small"></p>
+        <button id="manageSeriesCoverBtn" class="suggest-btn" type="button">Cover verwalten</button>
         <button id="editSeriesBtn" class="suggest-btn" type="button">✎ Reihe bearbeiten</button>
         <button id="coverSuggestionsBtn" class="suggest-btn" type="button">✨ Cover-Vorschläge laden</button>
         <section id="coverSuggestions" class="cover-suggestions hidden" aria-live="polite">
@@ -184,6 +189,41 @@
     </form>
   </dialog>
 
-  <script type="module" src="./app.js?v=10"></script>
+  <dialog id="conflictDialog" aria-labelledby="conflictHeading">
+    <div class="dialog-head"><h2 id="conflictHeading">Änderungen abgleichen</h2><button id="closeConflicts" class="icon-btn" aria-label="Schließen">✕</button></div>
+    <div class="editor-form"><p>Dieser Band wurde auch auf einem anderen Gerät geändert. Welcher Stand soll gelten?</p><div id="conflictList"></div></div>
+  </dialog>
+  <dialog id="backupDialog" aria-labelledby="backupHeading">
+    <div class="dialog-head"><h2 id="backupHeading">Backup und Wiederherstellung</h2><button id="closeBackup" class="icon-btn" aria-label="Schließen">✕</button></div>
+    <div class="editor-form">
+      <p>Speichere deine Sammlung als JSON-Datei auf deinem Gerät. Private Cover werden eingebettet, externe Cover als Links gespeichert. Die Datei enthält deine privaten Sammlungsdaten.</p>
+      <button id="exportBackup" class="primary">Backup herunterladen</button>
+      <hr>
+      <label>Backup auswählen (max. 150 MB)<input id="backupFile" type="file" accept="application/json,.json"></label>
+      <label>Import-Modus<select id="importMode"><option value="add">Nur fehlende Reihen ergänzen</option><option value="update">Ergänzen und vorhandene Reihen aktualisieren</option></select></label>
+      <p class="muted small">Zuordnung über Titel und Sprache. Aktualisieren übernimmt Notizen, Besitzmarkierungen und Cover aus dem Backup. Zusätzliche vorhandene Bände bleiben erhalten. Andere Reihen werden nie gelöscht.</p>
+      <div id="importPreview"></div>
+      <label class="check-label"><input id="importConfirm" type="checkbox"> Ich habe die Vorschau geprüft und möchte diese Daten importieren.</label>
+      <button id="importBackup" class="primary" disabled>Import starten</button>
+      <p id="backupStatus" role="status" aria-live="polite"></p>
+    </div>
+  </dialog>
+  <dialog id="coverManagerDialog" aria-labelledby="coverManagerHeading">
+    <div class="dialog-head"><h2 id="coverManagerHeading">Cover verwalten</h2><button id="closeCoverManager" class="icon-btn" aria-label="Schließen">✕</button></div>
+    <div class="editor-form">
+      <p id="coverTargetLabel"></p><div id="managedCover" class="detail-cover"></div><p id="managedCoverSource" class="muted small"></p>
+      <label id="volumeLabelField">Bandbezeichnung / Ausgabe<input id="volumeLabelInput" maxlength="250" placeholder="z. B. Band 1 – deutsche Ausgabe"></label>
+      <button id="saveVolumeLabel">Bezeichnung speichern</button>
+      <label class="upload-btn">Eigenes Cover hochladen (JPG, PNG, WebP; max. 10 MB)<input id="managedCoverInput" type="file" accept="image/jpeg,image/png,image/webp" hidden></label>
+      <button id="removeCover" class="danger">Cover-Zuordnung entfernen</button>
+      <hr><label>Suchbegriff<input id="coverSearchInput" maxlength="250"></label>
+      <button id="searchManagedCover">Cover suchen</button>
+      <p class="muted small">AniList liefert Reihenmotive. MangaDex-Bandcover werden nach Bandnummer und Ausgabensprache bevorzugt. Prüfe vor dem Übernehmen Band, Sprache und Ausgabe.</p>
+      <div id="managedSuggestions" class="suggest-grid"></div>
+      <p id="coverManagerStatus" role="status" aria-live="polite"></p>
+    </div>
+  </dialog>
+
+  <script type="module" src="./app.js?v=11"></script>
 </body>
 </html>

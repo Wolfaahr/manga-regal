@@ -112,3 +112,13 @@ dialog::backdrop{background:rgba(0,0,0,.72);backdrop-filter:blur(3px)}
 .form-error{color:#ffc0c7;white-space:pre-wrap;overflow-wrap:anywhere}.form-error:empty{display:none}
 button:disabled{opacity:.55;cursor:wait}
 @media(max-width:500px){.editor-columns{grid-template-columns:1fr;gap:0}.editor-form{padding:16px}.editor-actions button{flex:1}}
+
+#backupDialog,#coverManagerDialog,#conflictDialog{width:min(800px,94vw)}
+.volume-item{min-width:0;display:flex;flex-direction:column;gap:5px}.volume-item .volume{width:100%}
+.volume-item img{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:7px}.volume-cover-btn{padding:6px;font-size:.72rem}
+.cover-source{font-size:.65rem;color:var(--muted);overflow-wrap:anywhere}
+#managedCover{width:150px}#managedCover:empty{display:none}
+.conflict-row{border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0}.conflict-row button{margin:4px}
+.check-label{display:flex!important;align-items:flex-start;gap:8px!important;margin-top:16px}.check-label input{width:auto!important}
+#importPreview{max-height:300px;overflow:auto;margin-top:15px}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+#backupStatus,#coverManagerStatus{white-space:pre-wrap;overflow-wrap:anywhere}hr{border:0;border-top:1px solid var(--line);margin:20px 0}

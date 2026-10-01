@@ -20,18 +20,24 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-      - name: Check JavaScript and series management
+          node-version: "24"
+      - run: npm ci --ignore-scripts
+      - name: Check JavaScript and app flows
         run: |
           node --check app.js
           node --check service-worker.js
-          node --test tests/*.test.js
+          npm test
       - uses: actions/configure-pages@v5
         with:
           enablement: true
+      - name: Prepare public app files
+        run: |
+          mkdir -p dist/icons
+          cp index.html styles.css app.js config.js service-worker.js manifest.webmanifest series-management.js sync-state.js backup-format.js dist/
+          cp icons/*.png dist/icons/
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: dist
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4

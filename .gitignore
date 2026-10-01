@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+.env.*
+PRIVATE_COLLECTION*
+manga-regal-backup-*.json
+*.backup.json
