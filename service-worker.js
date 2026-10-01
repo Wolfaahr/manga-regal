@@ -1,5 +1,5 @@
-const CACHE="manga-regal-pwa-v5";
-const CORE=["./","./index.html","./styles.css","./app.js","./config.js","./manifest.webmanifest","./icons/icon-192.png","./icons/icon-512.png"];
+const CACHE="manga-regal-pwa-v6";
+const CORE=["./","./index.html","./styles.css?v=6","./app.js?v=6","./config.js","./manifest.webmanifest","./icons/icon-192.png","./icons/icon-512.png"];
 
 self.addEventListener("install",e=>e.waitUntil(
   caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())
