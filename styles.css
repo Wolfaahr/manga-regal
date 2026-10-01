@@ -101,3 +101,14 @@ dialog::backdrop{background:rgba(0,0,0,.72);backdrop-filter:blur(3px)}
 @media(max-width:430px){
  .bulk-results{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+#seriesEditorDialog,#deleteSeriesDialog{width:min(640px,94vw)}
+.editor-form{padding:20px}.editor-form fieldset{border:0;padding:0;margin:0;min-width:0}
+.editor-form label{display:grid;gap:7px;margin-bottom:14px;font-size:.9rem}
+.editor-form input,.editor-form select,.editor-form textarea{width:100%;min-width:0;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:10px;padding:11px;font:inherit;font-size:16px}
+.editor-form textarea{resize:vertical}.editor-columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.editor-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:18px}
+.danger{color:#ffc0c7;border-color:var(--bad);background:rgba(255,117,130,.1)}
+.form-error{color:#ffc0c7;white-space:pre-wrap;overflow-wrap:anywhere}.form-error:empty{display:none}
+button:disabled{opacity:.55;cursor:wait}
+@media(max-width:500px){.editor-columns{grid-template-columns:1fr;gap:0}.editor-form{padding:16px}.editor-actions button{flex:1}}

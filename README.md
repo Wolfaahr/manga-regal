@@ -12,3 +12,21 @@ Mobile-first private manga collection app.
 **Never put a Supabase service-role/secret key into this repository.**
 
 The setup notes are in `START_HIER.md`.
+
+## Reihen verwalten
+Nach dem Anmelden können Reihen online angelegt, bearbeitet und gelöscht werden.
+Die Gesamtzahl umfasst erschienene und angekündigte Bände. Zusätzliche Bände werden
+als fehlend ergänzt; vorhandene Banddaten und Besitzmarkierungen bleiben erhalten.
+Die Gesamtzahl kann deshalb nicht unter eine bereits vorhandene Bandnummer sinken.
+Zum Löschen einer Reihe muss ihr Titel bestätigt werden. Die Datenbank entfernt die
+zugehörigen Banddaten per Cascade. Bereits hochgeladene Coverdateien bleiben im
+privaten Storage erhalten.
+
+Speichern verwendet wiederholbare Einfügevorgänge mit einer festen Reihen-ID.
+Bei einem Verbindungsabbruch kann erneut gespeichert werden, um fehlende Bände zu
+ergänzen. Die einzelnen Datenbankaufrufe bilden keine gemeinsame Transaktion.
+
+## Prüfungen
+`node --test tests/*.test.js`
+
+GitHub Actions prüft JavaScript-Syntax und Reihenverwaltung vor dem Deployment.

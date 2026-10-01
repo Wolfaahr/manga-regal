@@ -1,3 +1,4 @@
+import { validateSeries, persistSeries } from "./series-management.js?v=10";
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 
@@ -157,6 +158,7 @@ function showApp(){
   $("#appView").classList.remove("hidden");
 }
 function showLogin(){
+  $$("dialog[open]").forEach(dialog=>dialog.close());
   $("#appView").classList.add("hidden");
   $("#loginView").classList.remove("hidden");
 }
@@ -648,6 +650,109 @@ async function uploadSeriesCover(file){
   await loadLibrary(); openSeries(activeSeries.id); toast("Cover gespeichert.");
 }
 
+
+let editorId = null;
+let editorExisting = false;
+let editorBusy = false;
+
+function openEditor(series = null){
+  if(!session || !navigator.onLine){ toast("Reihen lassen sich nur online verwalten."); return; }
+  editorId=series?.id || crypto.randomUUID();
+  editorExisting=Boolean(series);
+  $("#editorHeading").textContent=series ? "Reihe bearbeiten" : "Reihe hinzufügen";
+  $("#editorTitle").value=series?.title || "";
+  $("#editorLang").value=series?.lang || "de";
+  $("#editorStatus").value=series?.status || "laufend";
+  $("#editorReleased").value=series?.released_count || 1;
+  $("#editorAnnounced").value=series?.announced_count || 1;
+  $("#editorNote").value=series?.note || "";
+  $("#editorError").textContent="";
+  $("#deleteSeriesBtn").classList.toggle("hidden",!series);
+  $("#seriesEditorDialog").showModal();
+  $("#editorTitle").focus();
+}
+function closeEditor(){ if(!editorBusy) $("#seriesEditorDialog").close(); }
+function setEditorBusy(busy){
+  editorBusy=busy;
+  $("#editorFields").disabled=busy;
+  $("#closeEditor").disabled=busy;
+  $("#saveSeriesBtn").textContent=busy ? "Speichere …" : "Speichern";
+}
+async function saveSeries(e){
+  e.preventDefault();
+  if(editorBusy)return;
+  const errorBox=$("#editorError"); errorBox.textContent="";
+  if(!session || !navigator.onLine){ errorBox.textContent="Zum Speichern bitte online anmelden."; return; }
+  setEditorBusy(true);
+  const id=editorId;
+  let writeStarted=false;
+  try{
+    const data=validateSeries({title:$("#editorTitle").value,lang:$("#editorLang").value,
+      released_count:$("#editorReleased").value,announced_count:$("#editorAnnounced").value,
+      status:$("#editorStatus").value,note:$("#editorNote").value},
+      library.find(s=>s.id===id)?.volumes || []);
+    if(library.some(s=>s.id!==id && s.lang===data.lang && s.title.toLocaleLowerCase()===data.title.toLocaleLowerCase())){
+      throw new Error("Eine Reihe mit diesem Titel und dieser Sprache ist bereits vorhanden.");
+    }
+    await flushQueue();
+    if(getQueue().length) throw new Error("Es stehen noch Besitzänderungen aus. Bitte nach erfolgreicher Synchronisierung erneut speichern.");
+    writeStarted=true;
+    await persistSeries(supabase,session.user.id,id,data);
+    $("#seriesEditorDialog").close();
+    $("#seriesDialog").close();
+    try{ await loadLibrary(); openSeries(id); toast("Reihe gespeichert."); }
+    catch{ setSync("Gespeichert – bitte Ansicht neu laden","bad"); toast("Reihe gespeichert. Die Ansicht konnte noch nicht aktualisiert werden."); }
+  }catch(err){
+    errorBox.textContent=(err?.message || "Speichern fehlgeschlagen.")+(writeStarted ? " Änderungen können teilweise gespeichert sein; erneutes Speichern ergänzt fehlende Bände." : "");
+  }finally{ setEditorBusy(false); }
+}
+function openDelete(){
+  const s=library.find(x=>x.id===editorId); if(!s || !editorExisting)return;
+  $("#deleteSeriesTitle").textContent=s.title;
+  $("#deleteConfirmation").value="";
+  $("#deleteError").textContent="";
+  $("#deleteSeriesDialog").showModal();
+  $("#deleteConfirmation").focus();
+}
+async function deleteSeries(e){
+  e.preventDefault();
+  if(editorBusy)return;
+  const s=library.find(x=>x.id===editorId); if(!s)return;
+  const errorBox=$("#deleteError"); errorBox.textContent="";
+  if($("#deleteConfirmation").value!==s.title){ errorBox.textContent="Der Titel stimmt nicht überein."; return; }
+  if(!session || !navigator.onLine){ errorBox.textContent="Zum Löschen bitte online anmelden."; return; }
+  setEditorBusy(true);
+  $("#confirmDelete").disabled=true; $("#cancelDelete").disabled=true;
+  try{
+    const {data,error}=await supabase.from("series").delete().eq("id",s.id).eq("user_id",session.user.id).select("id").single();
+    if(error)throw error;
+    if(!data)throw new Error("Die Reihe konnte nicht gelöscht werden.");
+    const volumeIds=new Set(s.volumes.map(v=>v.id));
+    setQueue(getQueue().filter(op=>!volumeIds.has(op.id)));
+    library=library.filter(x=>x.id!==s.id); activeSeries=null;
+    renderAll();
+    $("#deleteSeriesDialog").close(); $("#seriesEditorDialog").close(); $("#seriesDialog").close();
+    toast("Reihe gelöscht."); setSync("✓ synchron","ok");
+  }catch(err){ errorBox.textContent=err?.message || "Löschen fehlgeschlagen."; }
+  finally{ setEditorBusy(false); $("#confirmDelete").disabled=false; $("#cancelDelete").disabled=false; }
+}
+$("#addSeriesBtn").addEventListener("click",()=>openEditor());
+$("#editSeriesBtn").addEventListener("click",()=>openEditor(activeSeries));
+$("#closeEditor").addEventListener("click",closeEditor);
+$("#cancelEditor").addEventListener("click",closeEditor);
+$("#seriesEditorForm").addEventListener("submit",saveSeries);
+$("#deleteSeriesBtn").addEventListener("click",openDelete);
+$("#cancelDelete").addEventListener("click",()=>$("#deleteSeriesDialog").close());
+$("#deleteSeriesForm").addEventListener("submit",deleteSeries);
+for(const id of ["#seriesEditorDialog","#deleteSeriesDialog"]){
+  $(id).addEventListener("cancel",e=>{ if(editorBusy)e.preventDefault(); });
+}
+$("#editorReleased").addEventListener("input",()=>{
+  if(Number($("#editorAnnounced").value)<Number($("#editorReleased").value)){
+    $("#editorAnnounced").value=$("#editorReleased").value;
+  }
+});
+
 $("#loginForm").addEventListener("submit",async e=>{
   e.preventDefault();
   if(!CONFIGURED){ $("#configWarning").classList.remove("hidden"); return; }
@@ -688,7 +793,7 @@ $("#installBtn").addEventListener("click",async()=>{
   deferredInstallPrompt.prompt(); await deferredInstallPrompt.userChoice; deferredInstallPrompt=null; $("#installBtn").classList.add("hidden");
 });
 
-if("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js?v=9",{updateViaCache:"none"}).catch(()=>{});
+if("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js?v=10",{updateViaCache:"none"}).catch(()=>{});
 
 async function init(){
   if(!CONFIGURED){

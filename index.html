@@ -9,7 +9,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icons/icon-192.png">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=9">
+  <link rel="stylesheet" href="./styles.css?v=10">
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -43,6 +43,7 @@
         <p id="syncLabel" class="muted">Synchronisiere …</p>
       </div>
       <div class="header-actions">
+        <button id="addSeriesBtn" class="primary" type="button">＋ Reihe hinzufügen</button>
         <button id="coverAssistantBtn" class="ghost" type="button">✨ Alle Cover suchen</button>
         <button id="installBtn" class="ghost hidden" type="button">＋ App installieren</button>
         <button id="logoutBtn" class="ghost" type="button">Abmelden</button>
@@ -109,6 +110,7 @@
           🖼 Cover hochladen
           <input id="seriesCoverInput" type="file" accept="image/*" hidden>
         </label>
+        <button id="editSeriesBtn" class="suggest-btn" type="button">✎ Reihe bearbeiten</button>
         <button id="coverSuggestionsBtn" class="suggest-btn" type="button">✨ Cover-Vorschläge laden</button>
         <section id="coverSuggestions" class="cover-suggestions hidden" aria-live="polite">
           <div class="suggest-title">
@@ -146,6 +148,42 @@
     </div>
   </dialog>
 
-  <script type="module" src="./app.js?v=9"></script>
+  <dialog id="seriesEditorDialog" aria-labelledby="editorHeading">
+    <div class="dialog-head">
+      <h2 id="editorHeading">Reihe hinzufügen</h2>
+      <button id="closeEditor" class="icon-btn" type="button" aria-label="Schließen">✕</button>
+    </div>
+    <form id="seriesEditorForm" class="editor-form">
+      <fieldset id="editorFields">
+        <label>Titel<input id="editorTitle" required maxlength="250" autocomplete="off"></label>
+        <div class="editor-columns">
+          <label>Sprache<select id="editorLang"><option value="de">🇩🇪 Deutsch</option><option value="en">🇬🇧 Englisch</option><option value="ja">🇯🇵 Japanisch</option></select></label>
+          <label>Status<input id="editorStatus" list="seriesStatuses" required maxlength="100" value="laufend"></label>
+        </div>
+        <datalist id="seriesStatuses"><option value="laufend"><option value="abgeschlossen"><option value="pausiert"><option value="abgebrochen"></datalist>
+        <div class="editor-columns">
+          <label>Bereits erschienene Bände<input id="editorReleased" type="number" min="1" max="10000" step="1" value="1" required></label>
+          <label>Gesamtzahl inkl. angekündigter Bände<input id="editorAnnounced" type="number" min="1" max="10000" step="1" value="1" required></label>
+        </div>
+        <p class="muted small">Ohne weitere Ankündigungen sind beide Zahlen gleich. Neue Bände werden als fehlend angelegt. Bestehende Bände und Besitzmarkierungen bleiben erhalten.</p>
+        <label>Notiz<textarea id="editorNote" rows="3" maxlength="5000"></textarea></label>
+        <p id="editorError" class="form-error" role="alert"></p>
+        <div class="editor-actions"><button id="deleteSeriesBtn" class="danger" type="button">Reihe löschen</button><button id="cancelEditor" type="button">Abbrechen</button><button id="saveSeriesBtn" class="primary" type="submit">Speichern</button></div>
+      </fieldset>
+    </form>
+  </dialog>
+
+  <dialog id="deleteSeriesDialog" aria-labelledby="deleteHeading">
+    <div class="dialog-head"><h2 id="deleteHeading">Reihe löschen?</h2></div>
+    <form id="deleteSeriesForm" class="editor-form">
+      <p>Die Reihe und alle zugehörigen Band- und Besitzdaten werden dauerhaft gelöscht.</p>
+      <p>Zum Bestätigen den Titel eingeben: <strong id="deleteSeriesTitle"></strong></p>
+      <label>Titel<input id="deleteConfirmation" autocomplete="off" required></label>
+      <p id="deleteError" class="form-error" role="alert"></p>
+      <div class="editor-actions"><button id="cancelDelete" type="button">Abbrechen</button><button id="confirmDelete" class="danger" type="submit">Dauerhaft löschen</button></div>
+    </form>
+  </dialog>
+
+  <script type="module" src="./app.js?v=10"></script>
 </body>
 </html>
